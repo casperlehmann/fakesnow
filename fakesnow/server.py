@@ -101,6 +101,7 @@ async def login_request(request: Request) -> JSONResponse:
         },
         "success": True,
     }
+    logger.info(f"[LOGIN] Response status=success token_length={len(token)}")
     return SafeJSONResponse(response)
 
 
