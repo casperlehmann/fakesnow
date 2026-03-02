@@ -1,0 +1,52 @@
+version: v2beta1
+
+name: fakesnow
+
+pipelines:
+  dev:
+    flags:
+      - name: mode
+        type: string
+    run: |
+      pipeline=$(get_flag "mode")
+
+      start_dev $pipeline
+  purge:
+    run: 'stop_dev --all'
+
+dev:
+  fakesnow:
+    name: fakesnow
+    # Run the fakesnow server with uvicorn reload for live development
+    command: ["uvicorn", "fakesnow.server:app", "--host", "0.0.0.0", "--port", "51007", "--reload"]
+    args: []
+    container: fakesnow
+    labelSelector:
+      project: scooter
+      role: fakesnow
+    patches:
+      - op: remove # Remove container level security context
+        path: spec.containers.name=fakesnow.securityContext
+      - op: remove # Remove pod level security context
+        path: spec.securityContext
+      - op: remove # Allow pod to be scheduled to any node
+        path: spec.nodeName
+      - op: add # Set a user to run the container as
+        path: spec.containers[0].securityContext
+        value:
+          runAsUser: 0
+    sync:
+      # Do only one-way sync: local -> upstream
+      - downloadExcludePaths:
+          - "**"
+        initialSync: mirrorLocal
+        path: ./:/app
+        printLogs: true
+        startContainer: true
+        onUpload:
+          restartContainer: false
+        # Exclude everything except the fakesnow source
+        excludePaths:
+          - '**'
+          - '!/fakesnow'
+          - '!/pyproject.toml'
