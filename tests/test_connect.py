@@ -115,6 +115,32 @@ def test_connect_db_path_doesnt_exist():
         assert "No such directory: 'db-path-foobar'. Please ensure db_path exists." in str(excinfo.value)
 
 
+def test_connect_db_path_show_databases_after_restart():
+    """Test that SHOW DATABASES returns persisted databases after restart (new FakeSnow instance)."""
+    with tempfile.TemporaryDirectory(prefix="fakesnow-test") as db_path:
+        # Create a database in the first session
+        with (
+            fakesnow.patch(db_path=db_path),
+            snowflake.connector.connect() as conn,
+            conn.cursor() as cur,
+        ):
+            cur.execute("CREATE DATABASE PRESENTATION")
+            result = cur.execute("SHOW DATABASES").fetchall()
+            db_names = [row[1] for row in result]
+            assert "PRESENTATION" in db_names
+
+        # Simulate restart: new connection without specifying database
+        # This mimics pod restart where db files exist but connection doesn't specify a database
+        with (
+            fakesnow.patch(db_path=db_path),
+            snowflake.connector.connect() as conn,
+            conn.cursor() as cur,
+        ):
+            result = cur.execute("SHOW DATABASES").fetchall()
+            db_names = [row[1] for row in result]
+            assert "PRESENTATION" in db_names
+
+
 def test_connect_information_schema():
     with fakesnow.patch(create_schema_on_connect=False):
         conn = snowflake.connector.connect(database="db1", schema="information_schema")
