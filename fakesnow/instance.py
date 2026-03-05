@@ -15,6 +15,7 @@ from fakesnow.transforms import show
 
 logger = logging.getLogger("fakesnow.instance")
 
+MAIN_DATABASE_NAME = "main"
 GLOBAL_DATABASE_NAME = "_fs_global"
 
 
@@ -40,8 +41,8 @@ class FakeSnow:
             if not db_path:
                 raise ValueError("db_path is required when persist=True")
             Path(db_path).mkdir(parents=True, exist_ok=True)
-            main_db_file = f"{db_path}/main.db"
-            global_db_file = f"{db_path}/_fs_global.db"
+            main_db_file = f"{db_path}/{MAIN_DATABASE_NAME}.db"
+            global_db_file = f"{db_path}/{GLOBAL_DATABASE_NAME}.db"
             logger.info(f"Persistence enabled: main={main_db_file}, global={global_db_file}")
             self.duck_conn = duckdb.connect(database=main_db_file)
             self.duck_conn.execute(f"ATTACH IF NOT EXISTS '{global_db_file}' AS {GLOBAL_DATABASE_NAME}")
@@ -64,7 +65,7 @@ class FakeSnow:
         """Scan db_path for existing .db files and attach them."""
         for db_file in Path(self.db_path).glob("*.db"):  # type: ignore[arg-type]
             # Skip internal database files
-            if db_file.stem.lower() in ("main", "_fs_global"):
+            if db_file.stem.lower() in (MAIN_DATABASE_NAME, GLOBAL_DATABASE_NAME):
                 continue
 
             # Database name is the filename without .db extension (uppercase for Snowflake convention)

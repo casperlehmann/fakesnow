@@ -124,10 +124,10 @@ def test_connect_db_path_show_databases_after_restart():
             snowflake.connector.connect() as conn,
             conn.cursor() as cur,
         ):
-            cur.execute("CREATE DATABASE PRESENTATION")
+            cur.execute("CREATE DATABASE TEST_DB")
             result = cur.execute("SHOW DATABASES").fetchall()
             db_names = [row[1] for row in result]
-            assert "PRESENTATION" in db_names
+            assert "TEST_DB" in db_names
 
         # Simulate restart: new connection without specifying database
         # This mimics pod restart where db files exist but connection doesn't specify a database
@@ -138,7 +138,7 @@ def test_connect_db_path_show_databases_after_restart():
         ):
             result = cur.execute("SHOW DATABASES").fetchall()
             db_names = [row[1] for row in result]
-            assert "PRESENTATION" in db_names
+            assert "TEST_DB" in db_names
 
 
 def test_connect_information_schema():
