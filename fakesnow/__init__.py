@@ -22,6 +22,7 @@ def patch(
     create_schema_on_connect: bool = True,
     db_path: str | os.PathLike | None = None,
     nop_regexes: list[str] | None = None,
+    persist: bool = False,
 ) -> Iterator[None]:
     """Patch snowflake targets with fakes.
 
@@ -37,11 +38,13 @@ def patch(
 
         create_database_on_connect (bool, optional): Create database if provided in connection. Defaults to True.
         create_schema_on_connect (bool, optional): Create schema if provided in connection. Defaults to True.
-        db_path (str | os.PathLike | None, optional): Use existing database files from this path
-            or create them here if they don't already exist. If None databases are in-memory. Defaults to None.
+        db_path (str | os.PathLike | None, optional): Directory for database files. If None databases are
+            in-memory. Defaults to None.
         nop_regexes (list[str] | None, optional): SQL statements matching these regexes (case-insensitive) will return
             the success response without being run. Useful to skip over SQL commands that aren't implemented yet.
             Defaults to None.
+        persist (bool, optional): Enable persistence. When True, uses file-based storage for main and global
+            databases, and reattaches existing databases from db_path on startup. Requires db_path. Defaults to False.
 
     Yields:
         Iterator[None]: None.
@@ -56,6 +59,7 @@ def patch(
         create_schema_on_connect=create_schema_on_connect,
         db_path=db_path,
         nop_regexes=nop_regexes,
+        persist=persist,
     )
 
     fake_fns = {

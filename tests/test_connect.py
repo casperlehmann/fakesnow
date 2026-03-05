@@ -120,7 +120,7 @@ def test_connect_db_path_show_databases_after_restart():
     with tempfile.TemporaryDirectory(prefix="fakesnow-test") as db_path:
         # Create a database in the first session
         with (
-            fakesnow.patch(db_path=db_path),
+            fakesnow.patch(db_path=db_path, persist=True),
             snowflake.connector.connect() as conn,
             conn.cursor() as cur,
         ):
@@ -132,7 +132,7 @@ def test_connect_db_path_show_databases_after_restart():
         # Simulate restart: new connection without specifying database
         # This mimics pod restart where db files exist but connection doesn't specify a database
         with (
-            fakesnow.patch(db_path=db_path),
+            fakesnow.patch(db_path=db_path, persist=True),
             snowflake.connector.connect() as conn,
             conn.cursor() as cur,
         ):

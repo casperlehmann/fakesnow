@@ -41,8 +41,15 @@ class SafeJSONResponse(JSONResponse):
     def render(self, content: Any) -> bytes:
         return json.dumps(content, default=str).encode("utf-8")
 
+
 logger.info(f"Creating shared in-memory database for session")
-shared_fs = FakeSnow()
+# Persistence configuration via environment variables
+# FAKESNOW_DB_PERSIST: enables persistence (true/false)
+# FAKESNOW_DB_PATH: directory for persistent database files (default: /data), only used when persist=true
+PERSIST = os.environ.get("FAKESNOW_DB_PERSIST", "").lower() == "true"
+DB_PATH = os.environ.get("FAKESNOW_DB_PATH", "/data") if PERSIST else None
+
+shared_fs = FakeSnow(db_path=DB_PATH, persist=PERSIST)
 sessions: dict[str, FakeSnowflakeConnection] = {}
 
 

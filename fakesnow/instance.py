@@ -25,17 +25,30 @@ class FakeSnow:
         create_schema_on_connect: bool = True,
         db_path: str | os.PathLike | None = None,
         nop_regexes: list[str] | None = None,
+        persist: bool = False,
     ):
         self.create_database_on_connect = create_database_on_connect
         self.create_schema_on_connect = create_schema_on_connect
         self.db_path = db_path
         self.nop_regexes = nop_regexes
+        self.persist = persist
 
         self.results_cache: OrderedDict[str, tuple] = OrderedDict()
         self.duck_conn = duckdb.connect(database=":memory:")
 
-        # create a "global" database for storing objects which span databases.
-        self.duck_conn.execute(f"ATTACH IF NOT EXISTS ':memory:' AS {GLOBAL_DATABASE_NAME}")
+        if persist:
+            if not db_path:
+                raise ValueError("db_path is required when persist=True")
+            Path(db_path).mkdir(parents=True, exist_ok=True)
+            main_db_file = f"{db_path}/main.db"
+            global_db_file = f"{db_path}/_fs_global.db"
+            logger.info(f"Persistence enabled: main={main_db_file}, global={global_db_file}")
+            self.duck_conn = duckdb.connect(database=main_db_file)
+            self.duck_conn.execute(f"ATTACH IF NOT EXISTS '{global_db_file}' AS {GLOBAL_DATABASE_NAME}")
+        else:
+            self.duck_conn = duckdb.connect(database=":memory:")
+            self.duck_conn.execute(f"ATTACH IF NOT EXISTS ':memory:' AS {GLOBAL_DATABASE_NAME}")
+
         # create the info schema extensions and show views
         self.duck_conn.execute(info_schema.fs_global_creation_sql())
         self.duck_conn.execute(show.fs_global_creation_sql())
@@ -44,17 +57,16 @@ class FakeSnow:
         self.duck_conn.execute("SET GLOBAL TimeZone = 'UTC'")
 
         # Attach existing database files from db_path for persistence across restarts
-        if self.db_path:
+        if persist:
             self._attach_existing_databases()
 
     def _attach_existing_databases(self) -> None:
         """Scan db_path for existing .db files and attach them."""
-        db_path = Path(self.db_path)  # type: ignore[arg-type]
-        if not db_path.is_dir():
-            logger.warning(f"db_path does not exist or is not a directory: {db_path}")
-            return
+        for db_file in Path(self.db_path).glob("*.db"):  # type: ignore[arg-type]
+            # Skip internal database files
+            if db_file.stem.lower() in ("main", "_fs_global"):
+                continue
 
-        for db_file in db_path.glob("*.db"):
             # Database name is the filename without .db extension (uppercase for Snowflake convention)
             db_name = db_file.stem.upper()
 
