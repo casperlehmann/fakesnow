@@ -140,7 +140,7 @@ select
     1 as RETENTION_TIME,
     'STANDARD' as TYPE
 from system.information_schema.schemata
-where catalog_name not in ('memory', 'system', 'temp', '_fs_global')
+where catalog_name not in ('memory', 'system', 'temp', '_fs_global', 'main_db')
   and schema_name = 'main'
 """
 )
