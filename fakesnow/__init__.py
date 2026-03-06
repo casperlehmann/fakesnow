@@ -53,6 +53,8 @@ def patch(
     # don't allow re-patching because the keys in the fake_fns dict will point to the fakes, and so we
     # won't be able to patch extra targets
     assert not isinstance(snowflake.connector.connect, mock.MagicMock), "Snowflake connector is already patched"
+    assert not persist or (db_path and db_path not in (":isolated:", ":memory:") and os.path.exists(db_path)), \
+        "db_path is required when persist is True, and must be a valid existing directory path that is not used for in-memory or isolated databases"
 
     fs = FakeSnow(
         create_database_on_connect=create_database_on_connect,
