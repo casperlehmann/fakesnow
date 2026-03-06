@@ -4,6 +4,7 @@ import gzip
 import json
 import logging
 import os
+import os
 import secrets
 from base64 import b64encode
 from dataclasses import dataclass
@@ -53,6 +54,29 @@ class ServerError(Exception):
     status_code: int
     code: str
     message: str
+    
+
+def choose_fs_backend(session_params: dict[str, Any]) -> FakeSnow:
+    # Session parameters take precedence over environment variable for db path, this allow you to have some sessions
+    # share a database and others use isolated databases
+    db_path = session_params.get("FAKESNOW_DB_PATH") or os.environ.get("FAKESNOW_DB_PATH")
+    if db_path is None:
+        # Use the shared in-memory database. This is shared across all sessions and is cleared when the server restarts.
+        # Useful for sharing data between sessions without needing to manage database files.
+        logger.info(f"Using shared in-memory database for session")
+        return shared_fs
+    elif db_path == ":isolated:":
+        # Explicitly setting FAKESNOW_DB_PATH = ":isolated:", creates a new isolated database in memory for every login.
+        # Connection close is triggered by the context manager when hitting FakeSnowflakeConnection.__exit__()
+        # If used outside of a context manager, users will need to manually close the connection when they're done with
+        # it to release resources.
+        logger.info(f"Using isolated in-memory database for session")
+        return FakeSnow()
+    else:
+        # Use the set value for db_path. This instructs fakesnow to persist databases to the filesystem, making it
+        # persistent across server restarts.
+        logger.info(f"Using persistent database at {db_path} for session")
+        return FakeSnow(db_path=db_path, persist=True)
 
 
 async def login_request(request: Request) -> JSONResponse:
@@ -66,26 +90,7 @@ async def login_request(request: Request) -> JSONResponse:
     nop_regexes = session_params.get("nop_regexes")
     autocommit = session_params.get("AUTOCOMMIT", True)
 
-    # Session parameters take precedence over environment variable for db path, this allow you to have some sessions
-    # share a database and others use isolated databases
-    db_path = session_params.get("FAKESNOW_DB_PATH") or os.environ.get("FAKESNOW_DB_PATH")
-    if db_path is None:
-        # Use the shared in-memory database. This is shared across all sessions and is cleared when the server restarts.
-        # Useful for sharing data between sessions without needing to manage database files.
-        logger.info(f"Using shared in-memory database for session")
-        fs = shared_fs
-    elif db_path == ":isolated:":
-        # Explicitly setting FAKESNOW_DB_PATH = ":isolated:", creates a new isolated database in memory for every login.
-        # Connection close is triggered by the context manager when hitting FakeSnowflakeConnection.__exit__()
-        # If used outside of a context manager, users will need to manually close the connection when they're done with
-        # it to release resources.
-        logger.info(f"Using isolated in-memory database for session")
-        fs = FakeSnow()
-    else:
-        # Use the set value for db_path. This instructs fakesnow to persist databases to the filesystem, making it
-        # persistent across server restarts.
-        logger.info(f"Using persistent database at {db_path} for session")
-        fs = FakeSnow(db_path=db_path, persist=True)
+    fs = choose_fs_backend(session_params)
     token = secrets.token_urlsafe(32)
     logger.info(f"[LOGIN] database={database} schema={schema} autocommit={autocommit} nop_regexes={nop_regexes}")
     sessions[token] = fs.connect(database, schema, nop_regexes=nop_regexes, autocommit=autocommit)
@@ -318,6 +323,82 @@ def to_token(request: Request) -> str:
         raise ServerError(status_code=401, code="390101", message="Authorization header not found in the request data.")
 
     token = auth[17:-1]
+    logger.debug(f"[AUTH] Token extracted from Authorization header")
+    return token
+
+
+def to_conn(token: str) -> FakeSnowflakeConnection:
+    if not (conn := sessions.get(token)):
+        logger.error(f"[AUTH] Session not found for token, available sessions: {len(sessions)}")
+        raise ServerError(status_code=401, code="390104", message="User must login again to access the service.")
+
+    logger.debug(f"[AUTH] Session found, database={conn.database} schema={conn.schema}")
+    return conn
+
+
+async def session(request: Request) -> JSONResponse:
+    try:
+        token = to_token(request)
+        _ = to_conn(token)
+
+        if bool(request.query_params.get("delete")):
+            logger.info(f"[SESSION] DELETE session")
+            sessions[token]._duck_conn.close()  # Close the duckdb connection to release resources
+            del sessions[token]
+        else:
+            logger.debug(f"[SESSION] HEARTBEAT")
+
+        return SafeJSONResponse(
+            {"data": None, "code": None, "message": None, "success": True},
+        )
+
+    except ServerError as e:
+        logger.error(f"[SESSION] ServerError: code={e.code} message={e.message}")
+        return SafeJSONResponse(
+            {"data": None, "code": e.code, "message": e.message, "success": False, "headers": None},
+            status_code=e.status_code,
+        )
+
+
+def monitoring_query(request: Request) -> JSONResponse:
+    try:
+        token = to_token(request)
+        conn = to_conn(token)
+
+        sfqid = request.path_params["sfqid"]
+        if not conn.results_cache.get(sfqid):
+            logger.debug(f"[MONITORING] query {sfqid} not found in cache")
+            return SafeJSONResponse({"data": {"queries": []}, "success": True})
+
+        logger.debug(f"[MONITORING] query {sfqid} status=SUCCESS")
+        return SafeJSONResponse({"data": {"queries": [{"status": "SUCCESS"}]}, "success": True})
+    except ServerError as e:
+        logger.error(f"[MONITORING] ServerError: code={e.code} message={e.message}")
+        return SafeJSONResponse(
+            {"data": None, "code": e.code, "message": e.message, "success": False, "headers": None},
+            status_code=e.status_code,
+        )
+
+
+routes = [
+    Route(
+        "/session/v1/login-request",
+        login_request,
+        methods=["POST"],
+    ),
+    Route("/session", session, methods=["POST"]),
+    Route(
+        "/queries/v1/query-request",
+        query_request,
+        methods=["POST"],
+    ),
+    Route(
+        "/queries/{query_id}/result",
+        get_cached_query_result,
+        methods=["GET"],
+    ),
+    Route("/queries/v1/abort-request", lambda _: SafeJSONResponse({"success": True}), methods=["POST"]),
+
     logger.debug(f"[AUTH] Token extracted from Authorization header")
     return token
 
