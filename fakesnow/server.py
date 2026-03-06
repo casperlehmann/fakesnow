@@ -85,7 +85,7 @@ async def login_request(request: Request) -> JSONResponse:
         # Use the set value for db_path. This instructs fakesnow to persist databases to the filesystem, making it
         # persistent across server restarts.
         logger.info(f"Using persistent database at {db_path} for session")
-        fs = FakeSnow(db_path=db_path)
+        fs = FakeSnow(db_path=db_path, persist=True)
     token = secrets.token_urlsafe(32)
     logger.info(f"[LOGIN] database={database} schema={schema} autocommit={autocommit} nop_regexes={nop_regexes}")
     sessions[token] = fs.connect(database, schema, nop_regexes=nop_regexes, autocommit=autocommit)
